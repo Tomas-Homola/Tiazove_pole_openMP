@@ -7,9 +7,11 @@
 #include <chrono>
 
 #define R 6378000.0
-#define D 200000.0
+#define D 50000.0
 #define GM 398600.5
-#define N 8102
+#define N 160002 
+//#define N 8102
+//#define N 902
 #define EPSILON 0.000000000001
 
 using std::cos;
@@ -18,34 +20,34 @@ using std::sqrt;
 
 int main(int argc, char** argv)
 {
-    int threads = 1;
-    omp_set_num_threads(threads); // set number of threads
+    int nprocs = 6; // definovanie poctu procesov, na ktorych ma porgram bezat
+    omp_set_num_threads(nprocs); // set number of threads
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    double* B = new double[N] {0.0};
-    double* L = new double[N] {0.0};
+    double* B = new double[N] {};
+    double* L = new double[N] {};
     double Brad = 0.0, Lrad = 0.0, H = 0.0, u2n2 = 0.0;
     double temp = 0.0;
 
     // suradnice bodov X_i
-    double* X_x  = new double[N] {0.0};
-    double* X_y  = new double[N] {0.0};
-    double* X_z  = new double[N] {0.0};
+    double* X_x  = new double[N] {};
+    double* X_y  = new double[N] {};
+    double* X_z  = new double[N] {};
     double xNorm = 0.0;
     
     // suradnice bodov s_j
-    double* s_x = new double[N] {0.0};
-    double* s_y = new double[N] {0.0};
-    double* s_z = new double[N] {0.0};
+    double* s_x = new double[N] {};
+    double* s_y = new double[N] {};
+    double* s_z = new double[N] {};
     
     // suradnicce normal v x_i
-    double* n_x = new double[N] {0.0};
-    double* n_y = new double[N] {0.0};
-    double* n_z = new double[N] {0.0};
+    double* n_x = new double[N] {};
+    double* n_y = new double[N] {};
+    double* n_z = new double[N] {};
     
     // g vektor
-    double* g = new double[N] {0.0};
+    double* g = new double[N] {};
 
     // r vector
     double r_x = 0.0;
@@ -61,7 +63,7 @@ int main(int argc, char** argv)
 
     // load data
     FILE* file = nullptr;
-    file = fopen("E:/_school/4_ZS/paralelne_algoritmy/tyzden6_TiazovePoleZeme_openMP/build/Debug/BL-8102.dat", "r");
+    file = fopen("BL-160002.dat", "r");
     if (file == nullptr)
     {
         printf("file not open\n");
@@ -71,19 +73,20 @@ int main(int argc, char** argv)
     for (i = 0; i < N; i++)
     {
         int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &g[i], &u2n2);
-        g[i] = -g[i] * 0.00001;
+        //g[i] = -g[i] * 0.00001;
+        g[i] = -GM / R;
         
         //g[i] = u2n2;
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
 
-        X_x[i] = R * cos(Brad) * cos(Lrad);
-        X_y[i] = R * cos(Brad) * sin(Lrad);
-        X_z[i] = R * sin(Brad);
+        X_x[i] = (R + H) * cos(Brad) * cos(Lrad);
+        X_y[i] = (R + H) * cos(Brad) * sin(Lrad);
+        X_z[i] = (R + H) * sin(Brad);
 
-        s_x[i] = (R - D) * cos(Brad) * cos(Lrad);
-        s_y[i] = (R - D) * cos(Brad) * sin(Lrad);
-        s_z[i] = (R - D) * sin(Brad);
+        s_x[i] = (R + H - D) * cos(Brad) * cos(Lrad);
+        s_y[i] = (R + H - D) * cos(Brad) * sin(Lrad);
+        s_z[i] = (R + H - D) * sin(Brad);
         
         xNorm = sqrt(X_x[i] * X_x[i] + X_y[i] * X_y[i] + X_z[i] * X_z[i]);
         n_x[i] = -X_x[i] / xNorm;
@@ -101,7 +104,7 @@ int main(int argc, char** argv)
     //    g[i] = -(GM) / (R * R);
 
     // vytvorenie matice systemu rovnic
-    double* A = new double[N * N] {0.0};
+    double* A = new double[N * N] {};
     int ij = -1;
 
 #pragma omp parallel for private(j,r_x,r_y,r_z,rNorm,rNorm3,Kij,ij)
@@ -183,18 +186,18 @@ int main(int argc, char** argv)
         if (rhoNew == 0.0)
             return -1;
 
-        //if (iter == 1)
-        //{
-        //    printf("iter 1 setup\n");
-        //    for (int i = 0; i < N; i++)
-        //        p[i] = r[i];
-        //}
-        //else
-        //{
+        if (iter == 1)
+        {
+            //printf("iter 1 setup\n");
+            for (int i = 0; i < N; i++)
+                p[i] = r[i];
+        }
+        else
+        {
         beta = (rhoNew / rhoOld) * (alpha / omega);
         for (i = 0; i < N; i++) // update vector p^(i)
             p[i] = r[i] + beta * (p[i] - omega * v[i]);
-        //}
+        }
 
         // compute vector v = A.p
 #pragma omp parallel for private(j,ij)
@@ -229,7 +232,7 @@ int main(int argc, char** argv)
             for (i = 0; i < N; i++) // update solution x
                 sol[i] = sol[i] + alpha * p[i];
 
-            printf("BCGS stop: ||s|| is small enough, iter: %d\n", iter);
+            printf("BCGS stop:   ||s||(= %.10lf) is small enough, iter: %3d\n", sNorm, iter);
             break;
         }
 
@@ -263,7 +266,7 @@ int main(int argc, char** argv)
         }
 
         rezNorm = sqrt(rezNorm);
-        printf("iter: %d    ||r||: %.10lf\n", iter, rezNorm);
+        printf("iter: %3d    ||r||: %.10lf\n", iter, rezNorm);
 
         if (rezNorm < TOL)
         {
@@ -283,7 +286,7 @@ int main(int argc, char** argv)
     delete[] t;
 
     //########## EXPORT DATA ##########//
-    file = fopen("out.dat", "w");
+    file = fopen("out_Homola_OMP.dat", "w");
     if (file == nullptr)
     {
         printf("data export failed\n");
@@ -317,7 +320,7 @@ int main(int argc, char** argv)
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
-    printf("\nthreads: %d -> duration: %.4lf seconds\n", threads, (double)duration.count() / 1000000.0);
+    printf("\nnprocs: %d -> duration: %.4lf seconds\n", nprocs, (double)duration.count() / 1000000.0);
 
     delete[] X_x;
     delete[] X_y;
